@@ -87,7 +87,22 @@ import {
   type PageWaitForURLOptions,
 } from "./driver/page-waits.js";
 import { ElementResolutionError } from "./element-resolver.js";
-import { invokeEgo, probeAgentControl } from "./ego-errors.js";
+import {
+  normalizeGeolocation,
+  normalizePermissionDescriptors,
+  normalizePermissionList,
+  normalizePermissionOrigin,
+  validatePermissionSetting,
+  type GeolocationCoordinates,
+  type PermissionDescriptorInput,
+  type PermissionOriginOptions,
+  type PermissionSetting,
+} from "./driver/permissions.js";
+import {
+  invokeEgo,
+  isEgoUserControlError,
+  probeAgentControl,
+} from "./ego-errors.js";
 import {
   withPage as defaultWithPage,
   withSpace as defaultWithSpace,
@@ -1465,9 +1480,106 @@ class TaskSpace {
         "task.cdp only supports Target. and Browser. commands",
       );
     }
-    return this.#services.gate.withSpace(this.id, () =>
-      this.#services.cdp(method, params, undefined, options.timeout),
+    return this.#services.gate.withSpace(this.id, async () => {
+      try {
+        return await this.#services.cdp(
+          method,
+          params,
+          undefined,
+          options.timeout,
+        );
+      } catch (error) {
+        if (!shouldRetryBrowserCommandOnPageSession(method, error)) {
+          throw error;
+        }
+        const sessionId = await this.#browserCommandSession(options.timeout);
+        return this.#services.cdp(method, params, sessionId, options.timeout);
+      }
+    });
+  }
+
+  /** Set a browser permission override for this script run. */
+  async setPermission(
+    permission: PermissionDescriptorInput,
+    setting: PermissionSetting,
+    options: PermissionOriginOptions = {},
+  ): Promise<void> {
+    const descriptors = normalizePermissionDescriptors(
+      permission,
+      "task.setPermission",
     );
+    const normalizedSetting = validatePermissionSetting(
+      setting,
+      "task.setPermission",
+    );
+    validatePublicApiOptions("TaskSpace.setPermission", options);
+    const origin = normalizePermissionOrigin(
+      options.origin,
+      "task.setPermission",
+    );
+    return this.#services.gate.withSpace(this.id, async () => {
+      const sessionId = await this.#browserCommandSession();
+      for (const descriptor of descriptors) {
+        await this.#services.cdp(
+          "Browser.setPermission",
+          {
+            ...(origin ? { origin } : {}),
+            permission: descriptor,
+            setting: normalizedSetting,
+          },
+          sessionId,
+        );
+      }
+    });
+  }
+
+  /** Grant one or more browser permissions for this script run. */
+  async grantPermissions(
+    permissions: readonly PermissionDescriptorInput[],
+    options: PermissionOriginOptions = {},
+  ): Promise<void> {
+    const descriptors = normalizePermissionList(
+      permissions,
+      "task.grantPermissions",
+    );
+    validatePublicApiOptions("TaskSpace.grantPermissions", options);
+    const origin = normalizePermissionOrigin(
+      options.origin,
+      "task.grantPermissions",
+    );
+    return this.#services.gate.withSpace(this.id, async () => {
+      const sessionId = await this.#browserCommandSession();
+      for (const descriptor of descriptors) {
+        await this.#services.cdp(
+          "Browser.setPermission",
+          {
+            ...(origin ? { origin } : {}),
+            permission: descriptor,
+            setting: "granted",
+          },
+          sessionId,
+        );
+      }
+    });
+  }
+
+  /** Clear browser permission overrides set during this script run. */
+  async resetPermissions(): Promise<void> {
+    return this.#services.gate.withSpace(this.id, async () => {
+      const sessionId = await this.#browserCommandSession();
+      await this.#services.cdp("Browser.resetPermissions", {}, sessionId);
+    });
+  }
+
+  async #browserCommandSession(timeoutMs?: number): Promise<string> {
+    const tabs = await this.#services.listTabs();
+    const target = tabs.find((tab) => tab.active) ?? tabs[0];
+    if (!target) {
+      throw new Error(
+        "task space has no open Page for Browser CDP commands; create one with await task.newPage()",
+      );
+    }
+    return this.#services.ensureSession(target.targetId, timeoutMs);
   }
 
   /**
@@ -2511,6 +2623,27 @@ class Page {
         // longer safe even when the command looked observational.
         await this.#invalidateRefs(page);
       }
+    });
+  }
+
+  /** Override this Page's geolocation coordinates, or pass null to clear. */
+  async setGeolocation(coords: GeolocationCoordinates | null): Promise<void> {
+    const normalized = normalizeGeolocation(coords, "page.setGeolocation");
+    const page = await this.#resolve();
+    return this.#withPage(page, async ({ sessionId }) => {
+      if (normalized === null) {
+        await this.#services.cdp(
+          "Emulation.clearGeolocationOverride",
+          {},
+          sessionId,
+        );
+        return;
+      }
+      await this.#services.cdp(
+        "Emulation.setGeolocationOverride",
+        normalized,
+        sessionId,
+      );
     });
   }
 
@@ -4495,6 +4628,34 @@ function assertCdpCall(
     `${apiName} selects its own session and cannot route to another one.`,
   );
   validatePublicApiOptions(apiName, options);
+}
+
+function shouldRetryBrowserCommandOnPageSession(
+  method: string,
+  error: unknown,
+): boolean {
+  if (!method.startsWith("Browser.")) return false;
+  if (isEgoUserControlError(error)) return false;
+  const code = (error as { code?: unknown; error_code?: unknown })?.code;
+  if (code === -32601) return true;
+  const errorCode = (error as { error_code?: unknown })?.error_code;
+  if (
+    typeof errorCode === "string" &&
+    errorCode !== "EGO_CDP_SEND_FAILED" &&
+    errorCode !== "EGO_OPERATION_FAILED"
+  ) {
+    return false;
+  }
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return (
+    /'Browser\.[^']+' wasn't found/i.test(message) ||
+    /method not found/i.test(message)
+  );
 }
 
 async function waitForTargetToDisappear(

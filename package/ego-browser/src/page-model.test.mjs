@@ -8525,3 +8525,134 @@ test("snapshot describes a Page that stops answering after the first document ch
     assert.equal(calls, 2, "the second frame discovery is the one that failed");
   });
 });
+
+test("TaskSpace permission helpers and Page.setGeolocation dispatch expected CDP commands", async () => {
+  await withFixture(async (fixture) => {
+    const baseCdp = fixture.services.cdp;
+    const task = taskForRound(fixture, "round-a", {
+      async cdp(method, params, sessionId, timeoutMs) {
+        if (
+          method === "Browser.setPermission" ||
+          method === "Browser.resetPermissions" ||
+          method === "Emulation.setGeolocationOverride" ||
+          method === "Emulation.clearGeolocationOverride"
+        ) {
+          fixture.calls.push(["cdp", method, params, sessionId, timeoutMs]);
+          return {};
+        }
+        return baseCdp(method, params, sessionId, timeoutMs);
+      },
+    });
+    const page = await openTestPage(task, "https://example.test/perms");
+    fixture.calls.length = 0;
+
+    await task.setPermission("location", "denied", {
+      origin: "https://example.test/path",
+    });
+    await task.grantPermissions(["location", "clipboard"]);
+    await task.resetPermissions();
+    await page.setGeolocation({
+      latitude: 37.7749,
+      longitude: -122.4194,
+      accuracy: 20,
+    });
+    await page.setGeolocation(null);
+
+    const cdpCalls = fixture.calls.filter(([kind]) => kind === "cdp");
+    assert.deepEqual(
+      cdpCalls.map(([, method, params, sessionId]) => [
+        method,
+        params,
+        sessionId,
+      ]),
+      [
+        [
+          "Browser.setPermission",
+          {
+            origin: "https://example.test",
+            permission: { name: "geolocation" },
+            setting: "denied",
+          },
+          "session:target-1",
+        ],
+        [
+          "Browser.setPermission",
+          { permission: { name: "geolocation" }, setting: "granted" },
+          "session:target-1",
+        ],
+        [
+          "Browser.setPermission",
+          { permission: { name: "clipboard-read" }, setting: "granted" },
+          "session:target-1",
+        ],
+        [
+          "Browser.setPermission",
+          { permission: { name: "clipboard-write" }, setting: "granted" },
+          "session:target-1",
+        ],
+        ["Browser.resetPermissions", {}, "session:target-1"],
+        [
+          "Emulation.setGeolocationOverride",
+          { latitude: 37.7749, longitude: -122.4194, accuracy: 20 },
+          "session:target-1",
+        ],
+        ["Emulation.clearGeolocationOverride", {}, "session:target-1"],
+      ],
+    );
+
+    await assert.rejects(
+      () => task.setPermission("location", "allow"),
+      /must be one of granted, denied, prompt/,
+    );
+    await assert.rejects(
+      () => task.grantPermissions([]),
+      /must be a non-empty array/,
+    );
+    await assert.rejects(
+      () => page.setGeolocation({ latitude: 95, longitude: 0 }),
+      /latitude must be between -90 and 90/,
+    );
+  });
+});
+
+test("TaskSpace.cdp falls back to an open Page session for Browser.* method-not-found errors only", async () => {
+  await withFixture(async (fixture) => {
+    const baseCdp = fixture.services.cdp;
+    const task = taskForRound(fixture, "round-a", {
+      async cdp(method, params, sessionId, timeoutMs) {
+        if (method === "Browser.setPermission") {
+          fixture.calls.push(["cdp", method, params, sessionId, timeoutMs]);
+          if (sessionId === undefined) {
+            throw new Error("'Browser.setPermission' wasn't found");
+          }
+          return {};
+        }
+        if (method === "Browser.getVersion" && sessionId === undefined) {
+          const error = new Error("user took control");
+          error.error_code = "EGO_TASK_SPACE_USER_IN_CONTROL";
+          throw error;
+        }
+        return baseCdp(method, params, sessionId, timeoutMs);
+      },
+    });
+    await openTestPage(task, "https://example.test/cdp");
+    fixture.calls.length = 0;
+
+    await task.cdp("Browser.setPermission", {
+      permission: { name: "geolocation" },
+      setting: "denied",
+    });
+
+    const fallbackCalls = fixture.calls.filter(
+      ([kind, method]) => kind === "cdp" && method === "Browser.setPermission",
+    );
+    assert.equal(fallbackCalls.length, 2);
+    assert.equal(fallbackCalls[0][3], undefined);
+    assert.equal(fallbackCalls[1][3], "session:target-1");
+
+    await assert.rejects(
+      () => task.cdp("Browser.getVersion"),
+      (error) => error.error_code === "EGO_TASK_SPACE_USER_IN_CONTROL",
+    );
+  });
+});

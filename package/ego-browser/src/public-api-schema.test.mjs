@@ -20,7 +20,11 @@ test("the public API schema contains the v2 entry points and object methods", ()
     "TaskSpace.tabs",
     "TaskSpace.newPage",
     "TaskSpace.finish",
+    "TaskSpace.setPermission",
+    "TaskSpace.grantPermissions",
+    "TaskSpace.resetPermissions",
     "Page.snapshot",
+    "Page.setGeolocation",
     "Page.reload",
     "Page.targetId",
     "Page.waitForEvent",
@@ -139,5 +143,29 @@ test("schema-driven option validation rejects unknown and invalid fields", () =>
   assert.throws(
     () => validatePublicApiOptions("TaskSpace.finish", { keep: ["p2", "p2"] }),
     /keep must be "all" or an array of unique non-empty Page labels/,
+  );
+  validatePublicApiOptions("TaskSpace.setPermission", {
+    origin: "https://example.com",
+  });
+  validatePublicApiOptions("TaskSpace.grantPermissions", {
+    origin: "https://example.com",
+  });
+  validatePublicApiOptions("Page.setGeolocation", {
+    latitude: 37.7749,
+    longitude: -122.4194,
+    accuracy: 10,
+  });
+  assert.throws(
+    () => validatePublicApiOptions("TaskSpace.setPermission", { origin: "" }),
+    /task\.setPermission origin must be a non-empty string/,
+  );
+  assert.throws(
+    () =>
+      validatePublicApiOptions("Page.setGeolocation", {
+        latitude: 37.7749,
+        longitude: -122.4194,
+        accuracy: -5,
+      }),
+    /page\.setGeolocation accuracy must be a positive number/,
   );
 });

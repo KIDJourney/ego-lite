@@ -7,6 +7,7 @@ export type PublicApiOptionKind =
   | "pageRetention"
   | "positiveInteger"
   | "positiveMilliseconds"
+  | "positiveNumber"
   | "string"
   | "stringRecord"
   | "point";
@@ -178,6 +179,36 @@ export const PUBLIC_API_SCHEMA: readonly PublicApiEntry[] = [
     signature: "await task.cdp(method, params?, { timeout? })",
     summary: "Send a Target or Browser domain CDP command.",
     options: { timeout },
+  },
+  {
+    name: "TaskSpace.setPermission",
+    signature: "await task.setPermission(permission, setting, { origin? })",
+    summary:
+      "Set a browser permission (granted, denied, or prompt) for this script run without changing saved profile settings; omit origin for all origins.",
+    options: {
+      origin: option(
+        "nonEmptyString",
+        "HTTP(S) origin to scope the override to; omit to apply to all origins.",
+      ),
+    },
+  },
+  {
+    name: "TaskSpace.grantPermissions",
+    signature: "await task.grantPermissions(permissions, { origin? })",
+    summary:
+      "Grant one or more browser permissions for this script run without changing saved profile settings or clobbering unrelated permissions; omit origin for all origins.",
+    options: {
+      origin: option(
+        "nonEmptyString",
+        "HTTP(S) origin to scope the grants to; omit to apply to all origins.",
+      ),
+    },
+  },
+  {
+    name: "TaskSpace.resetPermissions",
+    signature: "await task.resetPermissions()",
+    summary:
+      "Clear browser permission overrides set during this script run and restore saved profile defaults.",
   },
   {
     name: "Page.label",
@@ -429,6 +460,18 @@ export const PUBLIC_API_SCHEMA: readonly PublicApiEntry[] = [
     signature: "await page.cdp(method, params?, { timeout? })",
     summary: "Send a CDP command through this Page's target session.",
     options: { timeout },
+  },
+  {
+    name: "Page.setGeolocation",
+    signature:
+      "await page.setGeolocation({ latitude, longitude, accuracy? } | null)",
+    summary:
+      "Override this Page's geolocation coordinates for this script run, or pass null to clear the override. Pair with task.grantPermissions(['geolocation']) to avoid a location prompt.",
+    options: {
+      latitude: option("finiteNumber", "Latitude between -90 and 90."),
+      longitude: option("finiteNumber", "Longitude between -180 and 180."),
+      accuracy: option("positiveNumber", "Accuracy in meters; defaults to 1."),
+    },
   },
   {
     name: "Page.waitForSelector",
@@ -745,6 +788,9 @@ function validateOptionValue(
     case "positiveMilliseconds":
       valid = typeof value === "number" && Number.isFinite(value) && value > 0;
       break;
+    case "positiveNumber":
+      valid = typeof value === "number" && Number.isFinite(value) && value > 0;
+      break;
     case "string":
       valid = typeof value === "string";
       break;
@@ -775,6 +821,9 @@ function validateOptionValue(
       throw new TypeError(
         `${apiName} ${optionName} must be a positive integer`,
       );
+    }
+    if (specification.kind === "positiveNumber") {
+      throw new TypeError(`${apiName} ${optionName} must be a positive number`);
     }
     if (specification.kind === "pageRetention") {
       throw new TypeError(

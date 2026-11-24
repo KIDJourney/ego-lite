@@ -12,6 +12,7 @@ import { pageClickHitTargetCase } from "./page-click-hit-target.mjs";
 import { pageActionMotionCase } from "./page-action-motion.mjs";
 import { pageDragAndDrawCase } from "./page-drag-and-draw.mjs";
 import { pageJavaScriptDialogHandlingCase } from "./page-dialogs.mjs";
+import { pagePermissionsCase } from "./page-permissions.mjs";
 import { pageMediaPlaybackCase } from "./page-media-playback.mjs";
 import { pageScrolledScreenshotCase } from "./page-screenshot.mjs";
 import {
@@ -148,6 +149,7 @@ export const e2eCases = [
     body: pageJavaScriptDialogHandlingCase,
   },
   { name: "Page media playback", body: pageMediaPlaybackCase },
+  { name: "Page permissions and geolocation", body: pagePermissionsCase },
   { name: "Page scrolled screenshot", body: pageScrolledScreenshotCase },
   {
     name: "Page default screenshot path: first run",

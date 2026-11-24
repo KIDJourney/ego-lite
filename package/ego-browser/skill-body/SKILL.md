@@ -141,6 +141,8 @@ Supported TaskSpace API:
 - Pages: `await task.pages()`, `await task.tabs()`, `newPage()`,
   `adopt(page, { as? })`, `release(label)`
 - Control: `waitForControl(options)`, `handOff()`, `finish({ keep })`
+- Permissions: `setPermission(perm, setting, { origin? })`,
+  `grantPermissions(perms, { origin? })`, `resetPermissions()`
 - Advanced: `cdp(method, params, options)`
 
 Pages receive permanent labels such as `p1`, `p2`, and `p3`. Prefer these labels
@@ -182,6 +184,7 @@ Page API:
   `selectOption()`, `focus()`, `press()`, `setInputFiles()`,
   `waitForFileChooser()`, `close()`
 - Dialogs: `acceptDialog(promptText?)`, `dismissDialog()`
+- Geolocation: `setGeolocation(coords | null)`
 - Pointer: `mouse.click()`, `move()`, `down()`, `up()`, `wheel()`
 - Keyboard: `keyboard.down()`, `up()`, `press()`, `type()`, `insertText()`,
   `paste()`
@@ -540,7 +543,9 @@ After `finish()`, do not operate any Page in the same script.
 
 Stop when the user takes control or the space is inactive or unassigned. Do not
 retry or route around the stop. Permission prompts, device choosers, and
-other browser-owned prompts require the user to handle them.
+other browser-owned prompts require the user to handle them. For script-scoped
+permission or location control before a page prompts, use `task.setPermission()`,
+`task.grantPermissions()`, `task.resetPermissions()`, or `page.setGeolocation()`.
 
 When the user must act in the browser (login without credentials the user gave,
 CAPTCHA or human verification, 2FA, or other manual step), call

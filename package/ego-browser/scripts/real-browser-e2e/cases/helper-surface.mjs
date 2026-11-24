@@ -58,6 +58,10 @@ export function helperSurfaceCase() {
     assertIncludes(defaultHelp, "TaskSpace.newPage", "default help presents the v2 object API");
     assertIncludes(defaultHelp, "TaskSpace.pages", "default help presents managed Pages");
     assertIncludes(defaultHelp, "TaskSpace.tabs", "default help presents tab inventory");
+    assertIncludes(defaultHelp, "TaskSpace.setPermission", "default help presents permission overrides");
+    assertIncludes(defaultHelp, "TaskSpace.grantPermissions", "default help presents permission grants");
+    assertIncludes(defaultHelp, "TaskSpace.resetPermissions", "default help presents permission reset");
+    assertIncludes(defaultHelp, "Page.setGeolocation", "default help presents geolocation override");
     assertIncludes(defaultHelp, "profiles", "default help presents browser profile selection");
     assertIncludes(defaultHelp, "Page.waitForTimeout", "default help presents fixed waits");
     assertIncludes(
